@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Dalani belgilash</title>
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Leaflet CSS & JS (Xarita uchun) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
+        #map { width: 100%; height: calc(100% - 60px); }
+        .bottom-bar {
+            height: 60px; background: #1e293b; color: white;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 0 15px; box-sizing: border-box;
+        }
+        button {
+            padding: 10px 16px; border: none; border-radius: 8px;
+            font-weight: bold; cursor: pointer; font-size: 14px;
+        }
+        .btn-clear { background: #ef4444; color: white; }
+        .btn-send { background: #22c55e; color: white; }
+    </style>
+</head>
+<body>
+
+<div id="map"></div>
+<div class="bottom-bar">
+    <button class="btn-clear" onclick="clearPolygon()">🗑 Tozalash</button>
+    <span id="info">Nuqtalarni belgilang (kamida 3 ta)</span>
+    <button class="btn-send" onclick="sendCoords()">🚀 Tahlil qilish</button>
+</div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+
+    // Boshlang'ich nuqta: Samarqand viloyati (Jomboy atrofi)
+    const map = L.map('map').setView([39.7150, 67.0565], 15);
+
+    // Yuqori aniqlikdagi sun'iy yo'ldosh qatlami (Google Satellite)
+    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        attribution: 'Google Satellite'
+    }).addTo(map);
+
+    let points = []; // [lon, lat]
+    let latlngs = []; // [lat, lon] Leaflet uchun
+    let polygonLayer = null;
+    let markers = [];
+
+    map.on('click', function(e) {
+        const lat = parseFloat(e.latlng.lat.toFixed(6));
+        const lon = parseFloat(e.latlng.lng.toFixed(6));
+
+        points.push([lon, lat]);
+        latlngs.push([lat, lon]);
+
+        const marker = L.circleMarker([lat, lon], {radius: 6, color: '#22c55e', fillOpacity: 1}).addTo(map);
+        markers.push(marker);
+
+        if (polygonLayer) map.removeLayer(polygonLayer);
+        if (latlngs.length >= 2) {
+            polygonLayer = L.polygon(latlngs, {color: '#22c55e', weight: 2, fillOpacity: 0.35}).addTo(map);
+        }
+        document.getElementById('info').innerText = `Nuqtalar: ${points.length} ta`;
+    });
+
+    function clearPolygon() {
+        points = [];
+        latlngs = [];
+        if (polygonLayer) map.removeLayer(polygonLayer);
+        markers.forEach(m => map.removeLayer(m));
+        markers = [];
+        document.getElementById('info').innerText = "Nuqtalarni belgilang";
+    }
+
+    function sendCoords() {
+        if (points.length < 3) {
+            alert("Iltimos, dalaning kamida 3 ta burchagini belgilang!");
+            return;
+        }
+        // Poligonni yopish (birinchi nuqtani oxiriga qo'shish)
+        points.push(points[0]);
+        tg.sendData(JSON.stringify({ coords: points }));
+    }
+</script>
+</body>
+</html>
