@@ -4,20 +4,29 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>Dalani belgilash</title>
-    <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <!-- Leaflet CSS & JS (Xarita uchun) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
         body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
-        #map { width: 100%; height: calc(100% - 60px); }
+        #map { width: 100%; height: calc(100% - 65px); }
+        .top-notice {
+            position: absolute; top: 10px; left: 10px; right: 55px; z-index: 1000;
+            background: rgba(15, 23, 42, 0.88); color: #fff; padding: 8px 12px;
+            border-radius: 8px; font-size: 12px; pointer-events: none;
+        }
+        .gps-btn {
+            position: absolute; bottom: 80px; right: 15px; z-index: 1000;
+            background: #ffffff; border: 2px solid #1e293b; border-radius: 50%;
+            width: 44px; height: 44px; font-size: 20px; cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
         .bottom-bar {
-            height: 60px; background: #1e293b; color: white;
+            height: 65px; background: #1e293b; color: white;
             display: flex; align-items: center; justify-content: space-between;
             padding: 0 15px; box-sizing: border-box;
         }
-        button {
+        button.action {
             padding: 10px 16px; border: none; border-radius: 8px;
             font-weight: bold; cursor: pointer; font-size: 14px;
         }
@@ -27,35 +36,60 @@
 </head>
 <body>
 
+<div class="top-notice">
+    💡 <b>Maslahat:</b> Agar binolar eski ko'rinsa, o'ng tepada  stacks (📚) tugmasini bosib <b>Yandex</b> yoki <b>Yangi binolar (OSM)</b> xaritasiga o'ting!
+</div>
+
+<button class="gps-btn" onclick="locateUser()">📍</button>
 <div id="map"></div>
+
 <div class="bottom-bar">
-    <button class="btn-clear" onclick="clearPolygon()">🗑 Tozalash</button>
-    <span id="info">Nuqtalarni belgilang (kamida 3 ta)</span>
-    <button class="btn-send" onclick="sendCoords()">🚀 Tahlil qilish</button>
+    <button class="action btn-clear" onclick="clearPolygon()">🗑 Tozalash</button>
+    <span id="info" style="font-size: 13px;">Kamida 5 ga dala tanlang</span>
+    <button class="action btn-send" onclick="sendCoords()">🚀 Tahlil qilish</button>
 </div>
 
 <script>
     const tg = window.Telegram.WebApp;
     tg.expand();
 
-    // Boshlang'ich nuqta: Samarqand viloyati (Jomboy atrofi)
-    const map = L.map('map').setView([39.7150, 67.0565], 15);
+    // 1. Google Hybrid
+    const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 20 });
 
-    // Yuqori aniqlikdagi sun'iy yo'ldosh qatlami (Google Satellite)
-    L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
-        attribution: 'Google Satellite'
+    // 2. Esri World Imagery (Ko'pincha Google'dan yangiroq bo'ladi)
+    const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
+
+    // 3. OpenStreetMap (Yangi qurilgan binolar va ko'chalar chizmasi har hafta yangilanadi)
+    const osmMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
+
+    // 4. Google Pure Satellite (Eng so'nggi versiya)
+    const googleSatNew = L.tileLayer('https://khms1.googleapis.com/kh?v=978&hl=uz&x={x}&y={y}&z={z}', { maxZoom: 20 });
+
+    const map = L.map('map', {
+        center: [39.6542, 66.9597], // Samarqand
+        zoom: 14,
+        layers: [esriSat]
+    });
+
+    L.control.layers({
+        "🛰 Esri (Yangilangan sun'iy yo'ldosh)": esriSat,
+        "🌍 Google Hybrid (Yo'l nomlari bilan)": googleHybrid,
+        "🏢 Yangi binolar chizmasi (OSM)": osmMap
     }).addTo(map);
 
-    let points = []; // [lon, lat]
-    let latlngs = []; // [lat, lon] Leaflet uchun
+    let points = [];
+    let latlngs = [];
     let polygonLayer = null;
     let markers = [];
+
+    function locateUser() {
+        map.locate({setView: true, maxZoom: 16});
+    }
 
     map.on('click', function(e) {
         const lat = parseFloat(e.latlng.lat.toFixed(6));
         const lon = parseFloat(e.latlng.lng.toFixed(6));
-
+        
         points.push([lon, lat]);
         latlngs.push([lat, lon]);
 
@@ -70,20 +104,18 @@
     });
 
     function clearPolygon() {
-        points = [];
-        latlngs = [];
+        points = []; latlngs = [];
         if (polygonLayer) map.removeLayer(polygonLayer);
         markers.forEach(m => map.removeLayer(m));
         markers = [];
-        document.getElementById('info').innerText = "Nuqtalarni belgilang";
+        document.getElementById('info').innerText = "Burchaklarni bosing";
     }
 
     function sendCoords() {
         if (points.length < 3) {
-            alert("Iltimos, dalaning kamida 3 ta burchagini belgilang!");
+            alert("Kamida 3 ta burchakni belgilang!");
             return;
         }
-        // Poligonni yopish (birinchi nuqtani oxiriga qo'shish)
         points.push(points[0]);
         tg.sendData(JSON.stringify({ coords: points }));
     }
