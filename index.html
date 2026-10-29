@@ -8,19 +8,39 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; }
+        body, html { margin: 0; padding: 0; height: 100%; font-family: sans-serif; overflow: hidden; }
         #map { width: 100%; height: calc(100% - 65px); }
-        .top-notice {
+        
+        /* Qidiruv paneli */
+        .search-box {
             position: absolute; top: 10px; left: 10px; right: 55px; z-index: 1000;
-            background: rgba(15, 23, 42, 0.88); color: #fff; padding: 8px 12px;
-            border-radius: 8px; font-size: 12px; pointer-events: none;
+            display: flex; gap: 5px;
         }
+        .search-box input {
+            flex: 1; padding: 10px 12px; border: none; border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3); font-size: 14px; outline: none;
+        }
+        .search-box button {
+            padding: 0 14px; background: #2563eb; color: white; border: none;
+            border-radius: 8px; font-weight: bold; cursor: pointer;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+
+        /* GPS tugmasi */
         .gps-btn {
             position: absolute; bottom: 80px; right: 15px; z-index: 1000;
-            background: #ffffff; border: 2px solid #1e293b; border-radius: 50%;
-            width: 44px; height: 44px; font-size: 20px; cursor: pointer;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            background: #ffffff; border: 2px solid #2563eb; border-radius: 50%;
+            width: 48px; height: 48px; font-size: 22px; cursor: pointer;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.35);
+            display: flex; align-items: center; justify-content: center;
         }
+
+        /* Foydalanuvchi turgan joy (Ko'k nuqta) */
+        .user-dot {
+            width: 16px; height: 16px; background: #2563eb; border: 3px solid #fff;
+            border-radius: 50%; box-shadow: 0 0 12px #2563eb;
+        }
+
         .bottom-bar {
             height: 65px; background: #1e293b; color: white;
             display: flex; align-items: center; justify-content: space-between;
@@ -36,16 +56,18 @@
 </head>
 <body>
 
-<div class="top-notice">
-    💡 <b>Maslahat:</b> Agar binolar eski ko'rinsa, o'ng tepada  stacks (📚) tugmasini bosib <b>Yandex</b> yoki <b>Yangi binolar (OSM)</b> xaritasiga o'ting!
+<!-- Tuman yoki qishloqni qidirish -->
+<div class="search-box">
+    <input type="text" id="searchInput" placeholder="Hududni yozing (masalan: Payariq, Urgut)..." />
+    <button onclick="searchPlace()">🔍</button>
 </div>
 
-<button class="gps-btn" onclick="locateUser()">📍</button>
+<button class="gps-btn" onclick="locateUser(true)" title="Mening joylashuvim">🎯</button>
 <div id="map"></div>
 
 <div class="bottom-bar">
     <button class="action btn-clear" onclick="clearPolygon()">🗑 Tozalash</button>
-    <span id="info" style="font-size: 13px;">Kamida 5 ga dala tanlang</span>
+    <span id="info" style="font-size: 13px;">Dala burchaklarini bosing</span>
     <button class="action btn-send" onclick="sendCoords()">🚀 Tahlil qilish</button>
 </div>
 
@@ -53,38 +75,117 @@
     const tg = window.Telegram.WebApp;
     tg.expand();
 
-    // 1. Google Hybrid
+    // 1. URL parametrlaridan yoki Xotiradan (localStorage) oxirgi joylashuvni olish
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlLat = parseFloat(urlParams.get('lat'));
+    const urlLon = parseFloat(urlParams.get('lon'));
+    
+    const savedLat = parseFloat(localStorage.getItem('lastLat')) || 39.6542;
+    const savedLon = parseFloat(localStorage.getItem('lastLon')) || 66.9597;
+    const savedZoom = parseInt(localStorage.getItem('lastZoom')) || 15;
+
+    const startLat = !isNaN(urlLat) ? urlLat : savedLat;
+    const startLon = !isNaN(urlLon) ? urlLon : savedLon;
+    const startZoom = !isNaN(urlLat) ? 17 : savedZoom;
+
+    // Xarita qatlamlari
     const googleHybrid = L.tileLayer('https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}', { maxZoom: 20 });
-
-    // 2. Esri World Imagery (Ko'pincha Google'dan yangiroq bo'ladi)
     const esriSat = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 });
-
-    // 3. OpenStreetMap (Yangi qurilgan binolar va ko'chalar chizmasi har hafta yangilanadi)
     const osmMap = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 });
 
-    // 4. Google Pure Satellite (Eng so'nggi versiya)
-    const googleSatNew = L.tileLayer('https://khms1.googleapis.com/kh?v=978&hl=uz&x={x}&y={y}&z={z}', { maxZoom: 20 });
-
     const map = L.map('map', {
-        center: [39.6542, 66.9597], // Samarqand
-        zoom: 14,
-        layers: [esriSat]
+        center: [startLat, startLon],
+        zoom: startZoom,
+        layers: [googleHybrid],
+        zoomControl: false
     });
 
     L.control.layers({
-        "🛰 Esri (Yangilangan sun'iy yo'ldosh)": esriSat,
-        "🌍 Google Hybrid (Yo'l nomlari bilan)": googleHybrid,
+        "🌍 Google (Yo'l va qishloq nomlari)": googleHybrid,
+        "🛰 Esri (Sun'iy yo'ldosh)": esriSat,
         "🏢 Yangi binolar chizmasi (OSM)": osmMap
-    }).addTo(map);
+    }, null, { position: 'topright' }).addTo(map);
 
+    let userMarker = null;
+    let accuracyCircle = null;
+
+    // Xarita surilganda joyni xotirada saqlab qolish (keyingi safar shu yerdan ochiladi!)
+    map.on('moveend', function() {
+        const c = map.getCenter();
+        localStorage.setItem('lastLat', c.lat);
+        localStorage.setItem('lastLon', c.lng);
+        localStorage.setItem('lastZoom', map.getZoom());
+    });
+
+    // Foydalanuvchi ustiga ko'k nuqta qo'yish funksiyasi
+    function showUserPin(lat, lon, accuracy = 30) {
+        if (userMarker) map.removeLayer(userMarker);
+        if (accuracyCircle) map.removeLayer(accuracyCircle);
+
+        const icon = L.divIcon({ className: 'user-dot', iconSize: [16, 16] });
+        userMarker = L.marker([lat, lon], { icon: icon }).addTo(map)
+            .bindPopup("📍 Siz shu yerdasiz").openPopup();
+        accuracyCircle = L.circle([lat, lon], { radius: accuracy, color: '#3b82f6', weight: 1, fillOpacity: 0.15 }).addTo(map);
+    }
+
+    // Agar botdan tayyor koordinata kelgan bo'lsa, darhol ko'rsatish
+    if (!isNaN(urlLat) && !isNaN(urlLon)) {
+        showUserPin(urlLat, urlLon, 20);
+    } else {
+        // Aks holda sahifa ochilishi bilan AVTOMATIK GPS ni ishga tushirish!
+        locateUser(false);
+    }
+
+    // 2. GPS orqali aniqlash (Yuqori aniqlikda)
+    function locateUser(showError = true) {
+        document.getElementById('info').innerText = "📡 GPS qidirilmoqda...";
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                function(pos) {
+                    const lat = pos.coords.latitude;
+                    const lon = pos.coords.longitude;
+                    const acc = pos.coords.accuracy;
+                    map.flyTo([lat, lon], 17, { animate: true, duration: 1.2 });
+                    showUserPin(lat, lon, acc);
+                    document.getElementById('info').innerText = "📍 Joylashuvingiz topildi!";
+                },
+                function(err) {
+                    document.getElementById('info').innerText = "Dala burchaklarini bosing";
+                    if (showError) {
+                        alert("Telefoningizda GPS o'chiq yoki Telegramga ruxsat berilmagan.\n\nYechim: Tepada qishloq/tuman nomini yozib qidiring yoki botdagi '📍 Joylashuvni yuborish' tugmasini bosing!");
+                    }
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        }
+    }
+
+    // 3. Qishloq, tuman yoki shahar nomi bo'yicha qidirish
+    async function searchPlace() {
+        const query = document.getElementById('searchInput').value.trim();
+        if (!query) return;
+        document.getElementById('info').innerText = "🔍 Qidirilmoqda...";
+        try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query + ', Uzbekistan')}`);
+            const data = await res.json();
+            if (data && data.length > 0) {
+                const lat = parseFloat(data[0].lat);
+                const lon = parseFloat(data[0].lon);
+                map.flyTo([lat, lon], 16);
+                document.getElementById('info').innerText = "✅ Hudud topildi!";
+            } else {
+                alert("Bunday joy topilmadi. Tuman nomini aniqroq yozing.");
+            }
+        } catch (e) {
+            alert("Qidiruvda xatolik.");
+        }
+    }
+
+    // Dala chizish mantiqi
     let points = [];
     let latlngs = [];
     let polygonLayer = null;
     let markers = [];
-
-    function locateUser() {
-        map.locate({setView: true, maxZoom: 16});
-    }
 
     map.on('click', function(e) {
         const lat = parseFloat(e.latlng.lat.toFixed(6));
@@ -108,7 +209,7 @@
         if (polygonLayer) map.removeLayer(polygonLayer);
         markers.forEach(m => map.removeLayer(m));
         markers = [];
-        document.getElementById('info').innerText = "Burchaklarni bosing";
+        document.getElementById('info').innerText = "Dala burchaklarini bosing";
     }
 
     function sendCoords() {
